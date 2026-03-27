@@ -1,0 +1,10 @@
+{
+  "description": "Keep workspace 1 as home, move maximized windows into focused secondary workspaces, and hide chrome outside the home workspace.",
+  "name": "Harbor Workspaces",
+  "shell-version": [
+    "46"
+  ],
+  "url": "https://github.com/vishnuyasa/harbor-workspaces",
+  "uuid": "harbor-workspaces@vishnuyasa.github.io",
+  "version": 1
+}
