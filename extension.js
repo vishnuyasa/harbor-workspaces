@@ -50,11 +50,53 @@ export default class Extension {
         return global.workspace_manager;
     }
 
+    getMonitorCount() {
+        return Main.layoutManager?.monitors?.length ?? global.display.get_n_monitors();
+    }
+
+    isFeatureEnabled() {
+        return this.getMonitorCount() <= 1;
+    }
+
+    applyWorkspaceMode() {
+        if (this._chromeVisibilityTimeoutId !== 0) {
+            GLib.source_remove(this._chromeVisibilityTimeoutId);
+            this._chromeVisibilityTimeoutId = 0;
+        }
+
+        if (this.isFeatureEnabled()) {
+            this._mutterSettings.set_boolean('dynamic-workspaces', false);
+            if (this._workspacePreferences.get_int('num-workspaces') < MAIN_WORKSPACE_INDEX + 2)
+                this._workspacePreferences.set_int('num-workspaces', MAIN_WORKSPACE_INDEX + 2);
+            this.queueCompactSecondaryWorkspaces();
+        } else {
+            this._mutterSettings.set_boolean('dynamic-workspaces', this._savedDynamicWorkspaces);
+            this.updateChromeVisibility();
+        }
+    }
+
+    isWorkspaceAgnosticWindow(win) {
+        if (!win)
+            return false;
+
+        const gtkApplicationId = win.get_gtk_application_id?.();
+        const wmClass = win.get_wm_class?.();
+
+        return win.is_always_on_all_workspaces() ||
+            win.is_skip_taskbar?.() ||
+            gtkApplicationId === 'com.github.amezin.ddterm' ||
+            wmClass === 'Com.github.amezin.ddterm' ||
+            wmClass === 'DropDownTerminalWindow';
+    }
+
+    shouldManageWindow(win) {
+        return this.isFeatureEnabled() &&
+            win?.window_type === Meta.WindowType.NORMAL &&
+            !this.isWorkspaceAgnosticWindow(win);
+    }
+
     getWorkspaceWindows(workspace) {
-        return workspace.list_windows().filter(w =>
-            w.window_type === Meta.WindowType.NORMAL &&
-            !w.is_always_on_all_workspaces()
-        );
+        return workspace.list_windows().filter(w => this.shouldManageWindow(w));
     }
 
     ensureWorkspaceCount(targetCount) {
@@ -206,7 +248,8 @@ export default class Extension {
     }
 
     updateChromeVisibility() {
-        const isMainWorkspace = this.getWorkspaceManager().get_active_workspace_index() === MAIN_WORKSPACE_INDEX;
+        const isMainWorkspace = !this.isFeatureEnabled() ||
+            this.getWorkspaceManager().get_active_workspace_index() === MAIN_WORKSPACE_INDEX;
 
         this.setActorVisibility(Main.panel, isMainWorkspace);
 
@@ -423,9 +466,7 @@ export default class Extension {
     {
         const win = act.meta_window;
         //console.log("achim","window_manager_map "+win.get_id());
-        if (win.window_type !== Meta.WindowType.NORMAL)
-            return;
-        if (win.is_always_on_all_workspaces())
+        if (!this.shouldManageWindow(win))
             return;
 
         if (win.get_maximized() === Meta.MaximizeFlags.BOTH) {
@@ -441,7 +482,7 @@ export default class Extension {
     {
         const win = act.meta_window;
         //console.log("achim","window_manager_destroy");
-        if (win.window_type !== Meta.WindowType.NORMAL)
+        if (!this.shouldManageWindow(win))
             return;
         this.queueCompactSecondaryWorkspaces();
     }
@@ -450,9 +491,7 @@ export default class Extension {
     {
         const win = act.meta_window;
         //console.log("achim","window_manager_size_change "+win.get_id());
-        if (win.window_type !== Meta.WindowType.NORMAL)
-            return;
-        if (win.is_always_on_all_workspaces())
+        if (!this.shouldManageWindow(win))
             return;
         if (change === Meta.SizeChange.MAXIMIZE)
             {
@@ -529,17 +568,16 @@ export default class Extension {
         this._workspacePreferences = new Gio.Settings({ schema_id: 'org.gnome.desktop.wm.preferences' });
         this._savedDynamicWorkspaces = this._mutterSettings.get_boolean('dynamic-workspaces');
         this._savedNumWorkspaces = this._workspacePreferences.get_int('num-workspaces');
-        this._mutterSettings.set_boolean('dynamic-workspaces', false);
-        this._workspacePreferences.set_int('num-workspaces', Math.max(MAIN_WORKSPACE_INDEX + 2, this.getWorkspaceManager().get_n_workspaces()));
         // Trigger new window with maximize size and if the window is maximized
         _handles.push(global.window_manager.connect('minimize', (_, act) => {this.window_manager_minimize(act);}));
         _handles.push(global.window_manager.connect('unminimize', (_, act) => {this.window_manager_unminimize(act);}));
         _handles.push(global.window_manager.connect('size-changed', (_, act) => {this.window_manager_size_changed(act);}));
         _handles.push(global.window_manager.connect('switch-workspace', (_) => {this.window_manager_switch_workspace();}));
+        _handles.push(Main.layoutManager.connect('monitors-changed', () => {this.applyWorkspaceMode();}));
         _handles.push(global.window_manager.connect('map', (_, act) => {this.window_manager_map(act);}));
         _handles.push(global.window_manager.connect('destroy', (_, act) => {this.window_manager_destroy(act);}));
         _handles.push(global.window_manager.connect('size-change', (_, act, change,rectold) => {this.window_manager_size_change(act,change,rectold);}));
-        this.queueCompactSecondaryWorkspaces();
+        this.applyWorkspaceMode();
         this.updateChromeVisibility();
     }
 

@@ -11,6 +11,7 @@ On this fork:
 - Unmaximizing a window sends it back to workspace 1.
 - Secondary workspaces are compacted when they become empty.
 - The top bar and Ubuntu Dock are shown on workspace 1 and hidden on secondary workspaces.
+- The custom Harbor behavior only runs on a single-display setup. If an external monitor is connected, Harbor Workspaces falls back to normal GNOME behavior.
 
 The name comes from the workflow: workspace 1 is the harbor, and focused windows leave it only while they are maximized.
 
@@ -29,6 +30,7 @@ This fork is currently tailored for `GNOME Shell 46` on Ubuntu 24.04.
 ## Notes
 
 - This fork disables GNOME dynamic workspaces while enabled and manages the workspace layout itself.
+- If more than one monitor is connected, the extension disables its custom window/workspace management and shell-chrome hiding behavior.
 - It was forked from `Maximize To Empty Workspace` and keeps the original GPL licensing.
 
 ## License
