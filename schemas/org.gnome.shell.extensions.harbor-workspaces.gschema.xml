@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.harbor-workspaces"
+          path="/org/gnome/shell/extensions/harbor-workspaces/">
+    <key name="enabled-on-single-monitor-only" type="b">
+      <default>true</default>
+      <summary>Only run Harbor on single-monitor setups</summary>
+      <description>If true, Harbor disables its custom workspace behavior when an external monitor is connected.</description>
+    </key>
+    <key name="hide-top-bar-on-secondary-workspaces" type="b">
+      <default>true</default>
+      <summary>Hide the top bar on secondary workspaces</summary>
+      <description>If true, Harbor hides the GNOME top bar outside the home workspace.</description>
+    </key>
+    <key name="hide-dock-on-secondary-workspaces" type="b">
+      <default>true</default>
+      <summary>Hide the dock on secondary workspaces</summary>
+      <description>If true, Harbor hides Ubuntu Dock outside the home workspace.</description>
+    </key>
+    <key name="disable-blur-my-shell-panel-blur-on-secondary-workspaces" type="b">
+      <default>true</default>
+      <summary>Disable Blur My Shell panel blur on secondary workspaces</summary>
+      <description>If true, Harbor turns off Blur My Shell panel blur outside the home workspace when that extension is installed.</description>
+    </key>
+    <key name="redirect-empty-secondary-workspaces" type="b">
+      <default>true</default>
+      <summary>Redirect from empty secondary workspaces</summary>
+      <description>If true, Harbor prevents staying on empty secondary workspaces by redirecting to the nearest valid previous workspace.</description>
+    </key>
+    <key name="return-home-on-close-from-secondary" type="b">
+      <default>true</default>
+      <summary>Return to the home workspace after closing from a secondary workspace</summary>
+      <description>If true, Harbor returns to workspace 1 when a managed secondary workspace becomes empty after a close action.</description>
+    </key>
+    <key name="animate-chrome-transitions" type="b">
+      <default>true</default>
+      <summary>Animate top bar and dock transitions</summary>
+      <description>If true, Harbor fades shell chrome in and out instead of switching visibility instantly.</description>
+    </key>
+    <key name="chrome-fade-duration-ms" type="i">
+      <default>180</default>
+      <range min="0" max="1000"/>
+      <summary>Chrome fade duration in milliseconds</summary>
+      <description>Controls how long Harbor's top bar and dock fade transitions take.</description>
+    </key>
+    <key name="excluded-gtk-application-ids" type="as">
+      <default>['com.github.amezin.ddterm']</default>
+      <summary>Excluded GTK application IDs</summary>
+      <description>Applications with these GTK application IDs are treated as workspace-agnostic utility windows.</description>
+    </key>
+    <key name="excluded-wm-classes" type="as">
+      <default>['Com.github.amezin.ddterm', 'DropDownTerminalWindow']</default>
+      <summary>Excluded WM classes</summary>
+      <description>Windows with these WM classes are treated as workspace-agnostic utility windows.</description>
+    </key>
+  </schema>
+</schemalist>
