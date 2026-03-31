@@ -182,10 +182,10 @@ export default class Extension {
             targetIndex++;
         }
 
-        // Keep workspace 1 as the persistent home workspace. Additional
-        // secondary workspaces are created only when a maximize actually needs
-        // them, rather than keeping a spare one around all the time.
-        const targetCount = Math.max(MAIN_WORKSPACE_INDEX + 2, targetIndex);
+        // Keep workspace 1 as the persistent home workspace and keep one spare
+        // empty secondary workspace available after the occupied secondary
+        // workspaces, so the next maximize always has somewhere to go.
+        const targetCount = Math.max(MAIN_WORKSPACE_INDEX + 2, targetIndex + 1);
         const activeIndex = manager.get_active_workspace_index();
 
         if (activeIndex >= targetCount) {
@@ -332,10 +332,11 @@ export default class Extension {
             : [];
 
         if (activeWorkspaceWindows.length === 0) {
-            const mainWorkspace = manager.get_workspace_by_index(MAIN_WORKSPACE_INDEX);
+            const fallbackIndex = Math.max(MAIN_WORKSPACE_INDEX, activeIndex - 1);
+            const fallbackWorkspace = manager.get_workspace_by_index(fallbackIndex);
 
-            if (mainWorkspace)
-                mainWorkspace.activate(global.get_current_time());
+            if (fallbackWorkspace)
+                fallbackWorkspace.activate(global.get_current_time());
         }
     }
 
