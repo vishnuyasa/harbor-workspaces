@@ -38,9 +38,16 @@ export default class Extension {
  
     constructor() {
         this._cleanupIdleId = 0;
+        this._returnHomeOnNextCompact = false;
         this._chromeVisibilityTimeoutId = 0;
+        this._chromeVisibilityFollowupTimeoutId = 0;
+        this._emptySecondaryWorkspaceGuardLaterId = 0;
+        this._workspaceAgnosticRefreshTimeoutId = 0;
+        this._visibleWorkspaceAgnosticWindowIds = new Set();
         this._savedDynamicWorkspaces = null;
         this._savedNumWorkspaces = null;
+        this._blurMyShellPanelSettings = null;
+        this._savedBlurMyShellPanelBlur = null;
     }
 
     getWorkspaceManager(win = null) {
@@ -69,6 +76,7 @@ export default class Extension {
             if (this._workspacePreferences.get_int('num-workspaces') < MAIN_WORKSPACE_INDEX + 2)
                 this._workspacePreferences.set_int('num-workspaces', MAIN_WORKSPACE_INDEX + 2);
             this.queueCompactSecondaryWorkspaces();
+            this.scheduleEmptySecondaryWorkspaceGuard();
         } else {
             this._mutterSettings.set_boolean('dynamic-workspaces', this._savedDynamicWorkspaces);
             this.updateChromeVisibility();
@@ -153,7 +161,7 @@ export default class Extension {
         this.queueCompactSecondaryWorkspaces();
     }
 
-    compactSecondaryWorkspaces() {
+    compactSecondaryWorkspaces(returnHomeIfActiveSecondaryEmpty = false) {
         const manager = this.getWorkspaceManager();
         const occupiedGroups = [];
         const n = manager.get_n_workspaces();
@@ -185,13 +193,27 @@ export default class Extension {
 
             if (fallbackWorkspace)
                 fallbackWorkspace.activate(global.get_current_time());
+        } else if (returnHomeIfActiveSecondaryEmpty && activeIndex > MAIN_WORKSPACE_INDEX) {
+            const activeWorkspace = manager.get_workspace_by_index(activeIndex);
+            const activeWorkspaceWindows = activeWorkspace
+                ? this.getWorkspaceWindows(activeWorkspace)
+                : [];
+
+            if (activeWorkspaceWindows.length === 0) {
+                const mainWorkspace = manager.get_workspace_by_index(MAIN_WORKSPACE_INDEX);
+
+                if (mainWorkspace)
+                    mainWorkspace.activate(global.get_current_time());
+            }
         }
 
         if (this._workspacePreferences.get_int('num-workspaces') !== targetCount)
             this._workspacePreferences.set_int('num-workspaces', targetCount);
     }
 
-    queueCompactSecondaryWorkspaces() {
+    queueCompactSecondaryWorkspaces(returnHomeIfActiveSecondaryEmpty = false) {
+        this._returnHomeOnNextCompact ||= returnHomeIfActiveSecondaryEmpty;
+
         if (this._cleanupIdleId !== 0)
             return;
 
@@ -199,7 +221,9 @@ export default class Extension {
             Meta.LaterType.BEFORE_REDRAW,
             () => {
                 this._cleanupIdleId = 0;
-                this.compactSecondaryWorkspaces();
+                const returnHome = this._returnHomeOnNextCompact;
+                this._returnHomeOnNextCompact = false;
+                this.compactSecondaryWorkspaces(returnHome);
                 return false;
             }
         );
@@ -212,6 +236,138 @@ export default class Extension {
             return [];
 
         return chromeGroup.get_children().filter(actor => actor?.name === 'dashtodockContainer');
+    }
+
+    getBlurPanelActors() {
+        const panelBox = Main.layoutManager?.panelBox ?? Main.panel?.get_parent?.();
+
+        if (!panelBox?.get_children)
+            return [];
+
+        const blurActors = [];
+
+        for (const actor of panelBox.get_children()) {
+            if (actor?.name !== 'bms-panel-backgroundgroup')
+                continue;
+
+            blurActors.push(actor);
+
+            if (actor.get_children) {
+                for (const child of actor.get_children()) {
+                    if (child?.name === 'bms-panel-blurred-widget')
+                        blurActors.push(child);
+                }
+            }
+        }
+
+        return blurActors;
+    }
+
+    syncBlurMyShellPanelBlur(isMainWorkspace) {
+        if (!this._blurMyShellPanelSettings)
+            return;
+
+        const target = isMainWorkspace
+            ? this._savedBlurMyShellPanelBlur
+            : false;
+
+        if (target === null || target === undefined)
+            return;
+
+        if (this._blurMyShellPanelSettings.get_boolean('blur') !== target)
+            this._blurMyShellPanelSettings.set_boolean('blur', target);
+    }
+
+    captureVisibleWorkspaceAgnosticWindows() {
+        this._visibleWorkspaceAgnosticWindowIds = new Set(
+            global.get_window_actors()
+                .map(actor => actor?.meta_window)
+                .filter(win =>
+                    this.isWorkspaceAgnosticWindow(win) &&
+                    !win.is_hidden?.() &&
+                    (win.get_compositor_private?.()?.visible ?? true)
+                )
+                .map(win => win.get_id())
+        );
+    }
+
+    refreshVisibleWorkspaceAgnosticWindows() {
+        if (this._visibleWorkspaceAgnosticWindowIds.size === 0)
+            return;
+
+        for (const actor of global.get_window_actors()) {
+            const win = actor?.meta_window;
+
+            if (!win || !this._visibleWorkspaceAgnosticWindowIds.has(win.get_id()))
+                continue;
+
+            if (!this.isWorkspaceAgnosticWindow(win))
+                continue;
+
+            if (win.stick)
+                win.stick();
+
+            if (win.make_above && !win.above)
+                win.make_above();
+
+            actor.show?.();
+        }
+
+        this._visibleWorkspaceAgnosticWindowIds.clear();
+    }
+
+    enforcePrimaryWorkspaceForEmptySecondary() {
+        if (!this.isFeatureEnabled())
+            return;
+
+        const manager = this.getWorkspaceManager();
+        const activeIndex = manager.get_active_workspace_index();
+
+        if (activeIndex <= MAIN_WORKSPACE_INDEX)
+            return;
+
+        const activeWorkspace = manager.get_workspace_by_index(activeIndex);
+        const activeWorkspaceWindows = activeWorkspace
+            ? this.getWorkspaceWindows(activeWorkspace)
+            : [];
+
+        if (activeWorkspaceWindows.length === 0) {
+            const mainWorkspace = manager.get_workspace_by_index(MAIN_WORKSPACE_INDEX);
+
+            if (mainWorkspace)
+                mainWorkspace.activate(global.get_current_time());
+        }
+    }
+
+    scheduleEmptySecondaryWorkspaceGuard() {
+        if (this._emptySecondaryWorkspaceGuardLaterId !== 0)
+            return;
+
+        this._emptySecondaryWorkspaceGuardLaterId = global.compositor.get_laters().add(
+            Meta.LaterType.BEFORE_REDRAW,
+            () => {
+                this._emptySecondaryWorkspaceGuardLaterId = 0;
+                this.enforcePrimaryWorkspaceForEmptySecondary();
+                return false;
+            }
+        );
+    }
+
+    scheduleWorkspaceAgnosticWindowRefresh() {
+        if (this._workspaceAgnosticRefreshTimeoutId !== 0) {
+            GLib.source_remove(this._workspaceAgnosticRefreshTimeoutId);
+            this._workspaceAgnosticRefreshTimeoutId = 0;
+        }
+
+        this._workspaceAgnosticRefreshTimeoutId = GLib.timeout_add(
+            GLib.PRIORITY_DEFAULT,
+            180,
+            () => {
+                this._workspaceAgnosticRefreshTimeoutId = 0;
+                this.refreshVisibleWorkspaceAgnosticWindows();
+                return GLib.SOURCE_REMOVE;
+            }
+        );
     }
 
     setActorVisibility(actor, visible, animate = true) {
@@ -251,7 +407,10 @@ export default class Extension {
         const isMainWorkspace = !this.isFeatureEnabled() ||
             this.getWorkspaceManager().get_active_workspace_index() === MAIN_WORKSPACE_INDEX;
 
+        this.syncBlurMyShellPanelBlur(isMainWorkspace);
         this.setActorVisibility(Main.panel, isMainWorkspace);
+        for (const actor of this.getBlurPanelActors())
+            this.setActorVisibility(actor, isMainWorkspace);
 
         for (const actor of this.getDockActors())
             this.setActorVisibility(actor, isMainWorkspace);
@@ -261,6 +420,11 @@ export default class Extension {
         if (this._chromeVisibilityTimeoutId !== 0) {
             GLib.source_remove(this._chromeVisibilityTimeoutId);
             this._chromeVisibilityTimeoutId = 0;
+        }
+
+        if (this._chromeVisibilityFollowupTimeoutId !== 0) {
+            GLib.source_remove(this._chromeVisibilityFollowupTimeoutId);
+            this._chromeVisibilityFollowupTimeoutId = 0;
         }
 
         const isMainWorkspace = this.getWorkspaceManager().get_active_workspace_index() === MAIN_WORKSPACE_INDEX;
@@ -275,6 +439,16 @@ export default class Extension {
             () => {
                 this._chromeVisibilityTimeoutId = 0;
                 this.updateChromeVisibility();
+
+                this._chromeVisibilityFollowupTimeoutId = GLib.timeout_add(
+                    GLib.PRIORITY_DEFAULT,
+                    260,
+                    () => {
+                        this._chromeVisibilityFollowupTimeoutId = 0;
+                        this.updateChromeVisibility();
+                        return GLib.SOURCE_REMOVE;
+                    }
+                );
                 return GLib.SOURCE_REMOVE;
             }
         );
@@ -484,7 +658,7 @@ export default class Extension {
         //console.log("achim","window_manager_destroy");
         if (!this.shouldManageWindow(win))
             return;
-        this.queueCompactSecondaryWorkspaces();
+        this.queueCompactSecondaryWorkspaces(true);
     }
 
     window_manager_size_change(act,change,rectold) 
@@ -560,7 +734,10 @@ export default class Extension {
 
     window_manager_switch_workspace()
     {
+        this.captureVisibleWorkspaceAgnosticWindows();
+        this.scheduleEmptySecondaryWorkspaceGuard();
         this.scheduleChromeVisibilityUpdate();
+        this.scheduleWorkspaceAgnosticWindowRefresh();
     }
 
     enable() {
@@ -568,6 +745,26 @@ export default class Extension {
         this._workspacePreferences = new Gio.Settings({ schema_id: 'org.gnome.desktop.wm.preferences' });
         this._savedDynamicWorkspaces = this._mutterSettings.get_boolean('dynamic-workspaces');
         this._savedNumWorkspaces = this._workspacePreferences.get_int('num-workspaces');
+        try {
+            const blurSchemasDir = '/home/vishnuyasa/.local/share/gnome-shell/extensions/blur-my-shell@aunetx/schemas';
+            const schemaSource = Gio.SettingsSchemaSource.new_from_directory(
+                blurSchemasDir,
+                Gio.SettingsSchemaSource.get_default(),
+                false
+            );
+            const schema = schemaSource.lookup(
+                'org.gnome.shell.extensions.blur-my-shell.panel',
+                true
+            );
+
+            if (schema) {
+                this._blurMyShellPanelSettings = new Gio.Settings({ settings_schema: schema });
+                this._savedBlurMyShellPanelBlur = this._blurMyShellPanelSettings.get_boolean('blur');
+            }
+        } catch (error) {
+            this._blurMyShellPanelSettings = null;
+            this._savedBlurMyShellPanelBlur = null;
+        }
         // Trigger new window with maximize size and if the window is maximized
         _handles.push(global.window_manager.connect('minimize', (_, act) => {this.window_manager_minimize(act);}));
         _handles.push(global.window_manager.connect('unminimize', (_, act) => {this.window_manager_unminimize(act);}));
@@ -591,10 +788,25 @@ export default class Extension {
 
         if (this._chromeVisibilityTimeoutId !== 0)
             GLib.source_remove(this._chromeVisibilityTimeoutId);
+        if (this._chromeVisibilityFollowupTimeoutId !== 0)
+            GLib.source_remove(this._chromeVisibilityFollowupTimeoutId);
+        if (this._emptySecondaryWorkspaceGuardLaterId !== 0)
+            global.compositor.get_laters().remove(this._emptySecondaryWorkspaceGuardLaterId);
+        if (this._workspaceAgnosticRefreshTimeoutId !== 0)
+            GLib.source_remove(this._workspaceAgnosticRefreshTimeoutId);
+
+        if (this._blurMyShellPanelSettings && this._savedBlurMyShellPanelBlur !== null)
+            this._blurMyShellPanelSettings.set_boolean('blur', this._savedBlurMyShellPanelBlur);
 
         this._workspacePreferences = null;
         this._mutterSettings = null;
+        this._blurMyShellPanelSettings = null;
+        this._savedBlurMyShellPanelBlur = null;
+        this._emptySecondaryWorkspaceGuardLaterId = 0;
+        this._visibleWorkspaceAgnosticWindowIds.clear();
         this.setActorVisibility(Main.panel, true, false);
+        for (const actor of this.getBlurPanelActors())
+            this.setActorVisibility(actor, true, false);
         for (const actor of this.getDockActors())
             this.setActorVisibility(actor, true, false);
     }

@@ -9,8 +9,12 @@ On this fork:
 - Workspace 1 is always the home workspace for regular windows.
 - Maximizing a window moves it to the next secondary workspace.
 - Unmaximizing a window sends it back to workspace 1.
+- Closing a maximized window on a secondary workspace returns focus to workspace 1.
 - Secondary workspaces are compacted when they become empty.
+- Empty secondary workspaces are not meant to be navigable. Harbor redirects back to workspace 1 before an empty secondary workspace is drawn.
 - The top bar and Ubuntu Dock are shown on workspace 1 and hidden on secondary workspaces.
+- Blur My Shell panel blur is enabled on workspace 1 and disabled on secondary workspaces.
+- Sticky utility windows such as `ddterm` are excluded from Harbor’s workspace moves and are refreshed after workspace switches so they stay visible.
 - The custom Harbor behavior only runs on a single-display setup. If an external monitor is connected, Harbor Workspaces falls back to normal GNOME behavior.
 
 The name comes from the workflow: workspace 1 is the harbor, and focused windows leave it only while they are maximized.
@@ -18,6 +22,19 @@ The name comes from the workflow: workspace 1 is the harbor, and focused windows
 ## Status
 
 This fork is currently tailored for `GNOME Shell 46` on Ubuntu 24.04.
+
+## Supported Extensions
+
+Harbor Workspaces currently has intentional support for these GNOME extensions:
+
+- `ubuntu-dock@ubuntu.com`
+  Harbor hides and restores the Ubuntu Dock based on whether you are on workspace 1 or a secondary workspace.
+- `blur-my-shell@aunetx`
+  Harbor integrates with Blur My Shell’s panel blur so the top-panel blur is kept on workspace 1 and turned off on secondary workspaces.
+- `ddterm@amezin.github.com`
+  Harbor treats ddterm as a sticky utility window rather than a normal managed app window, and it preserves that sticky/above behavior across workspace switches.
+
+Other installed extensions may still work, but these are the ones Harbor currently accounts for explicitly in its code.
 
 ## Install
 
@@ -31,6 +48,7 @@ This fork is currently tailored for `GNOME Shell 46` on Ubuntu 24.04.
 
 - This fork disables GNOME dynamic workspaces while enabled and manages the workspace layout itself.
 - If more than one monitor is connected, the extension disables its custom window/workspace management and shell-chrome hiding behavior.
+- Harbor is currently opinionated about the Ubuntu GNOME stack and is not intended as a general-purpose GNOME Shell extension for arbitrary desktop configurations.
 - It was forked from `Maximize To Empty Workspace` and keeps the original GPL licensing.
 
 ## License
